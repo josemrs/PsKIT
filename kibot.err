@@ -1,0 +1,5 @@
+Message[301] E:\ARCHIVOS DE PROGRAMA\MICROCHIP\MPASM SUITE\P16F84.INC 37 : MESSAGE: (Processor-header file mismatch.  Verify selected processor.)
+Message[305] E:\UNIVERSIDAD\ASIGNATURAS\DASD\KIBOT\KIBOT.ASM 193 : Using default destination of 1 (file).
+Message[302] E:\UNIVERSIDAD\ASIGNATURAS\DASD\KIBOT\KIBOT.ASM 283 : Register in operand not in bank 0.  Ensure that bank bits are correct.
+Message[302] E:\UNIVERSIDAD\ASIGNATURAS\DASD\KIBOT\KIBOT.ASM 285 : Register in operand not in bank 0.  Ensure that bank bits are correct.
+Message[302] E:\UNIVERSIDAD\ASIGNATURAS\DASD\KIBOT\KIBOT.ASM 287 : Register in operand not in bank 0.  Ensure that bank bits are correct.

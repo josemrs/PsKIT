@@ -1,0 +1,518 @@
+MPASM  5.03                         KIBOT.ASM   2-6-2007  21:28:03         PAGE  1
+
+
+LOC  OBJECT CODE     LINE SOURCE TEXT
+  VALUE
+
+                      00001 ;
+                      00002 ;               Exploración del tatami a baja velocidad, detección de borde, detección de enemigo próxim
+                            o.
+                      00003 ;
+                      00004 ;               Linea 0 - puerto B detector de linea infrarojo Delantero Derecho.
+                      00005 ;               Linea 1 - puerto B detector de linea infrarojo Trasero.
+                      00006 ;               Linea 2 - puerto B detector de enemigo infrarojo y bumper.
+                      00007 ;               Linea 3 - puerto B detector de linea infrarojo Delantero Derecho.
+                      00008 ;               Linea 4 = Puerto B bobina motor PaP
+                      00009 ;               Linea 5 - puerto B bobina motor PaP
+                      00010 ;               Linea 6 - puerto B bobina motor PaP
+                      00011 ;               Linea 7 - puerto B bobina motor PaP
+                      00012 ;
+                      00013 ;               Linea 1 - puerto A motores DC
+                      00014 ;               Linea 1 - puerto A motores DC
+                      00015 ;               Linea 2 = Puerto A motores DC
+                      00016 ;               Linea 3 - puerto A motores DC
+                      00017 ;               Linea 4 = Puerto A detector fin de carrera en subida de las paletas     
+                      00018 ;
+                      00019 ;               Diseño Automatico de Sistemas Digitales.
+                      00020 ;
+                      00021 ;               José María Rodríguez Sáez y Miguel Angel Muñoz Ortega
+                      00022 ;
+                      00023 
+                      00024                 list     p = 16f84
+                      00025                 RADIX   HEX       
+                      00026 
+                      00027                 include "P16F84.INC"
+                      00001         LIST
+                      00002 ; P16F84.INC  Standard Header File, Version 2.00    Microchip Technology, Inc.
+Message[301]: MESSAGE: (Processor-header file mismatch.  Verify selected processor.)
+                      00136         LIST
+                      00028 
+                      00029 #define ANCHO .05                               ; Anchura total: Ancho activado + Ancho desactivado. 10m
+                            s * ANCHO
+                      00030 #define ADELANTE b'00001101'    ; Patron para que los motores DC muevan el robot hacia adelante
+                      00031 #define GIRA_DCHA b'00001111'   ; Patron para que los motores DC giren el robot a la derecha
+                      00032 #define ATRAS b'00001110'       ; Patron para que los motores DC muevan el robot hacia atras
+                      00033 #define GIRA_IZQ b'000011001'   ; Patron para que los motores DC giren el robot a la izquierda
+                      00034 #define ALTURA .100                             ; Número de pasos que dará el motor PaP para bajar las p
+                            alas.
+                      00035 #define ALTURA_2 .120                           ; Número de pasos que dará el motor PaP para subir las p
+                            alas.
+                      00036 #define LONGITUD .3                     ; Numero de pasos que darça el robot intentando sacar al oponent
+                            e del tatami
+                      00037 
+  0000004F            00038 Delay_Cont      EQU     0x4F    ; Numero de veces que se repetirá el bucle de 10ms.
+                      00039 
+                      00040 ; Variables para el desplazamiento, motores DC
+  0000004E            00041 velocidad       EQU     0X4E    ; Ancho que los motores estarán activados, ANCHO - Ancho desactivado = v
+                            elocidad.
+  0000004D            00042 pasos           EQU 0x4D        ; Numero de veces que se enviara el pulso de ANCHO a los motores.
+  0000004C            00043 direccion       EQU 0x4C        ; Patron de bits para el sentido en el que giran los motores.
+MPASM  5.03                         KIBOT.ASM   2-6-2007  21:28:03         PAGE  2
+
+
+LOC  OBJECT CODE     LINE SOURCE TEXT
+  VALUE
+
+                      00044 
+                      00045 ; Variables para las paletas, motor PaP
+  0000004B            00046 Num_Pasos       EQU     0x4B
+  0000004A            00047 paso_PaP        EQU 0x4A        ; Paso en el que encuentra el motor, desplazamiento en la tabla Pasos
+                      00048 
+                      00049 
+0000                  00050                 ORG     0x00          ;El programa comienza en la dirección 0.  
+0000   287E           00051                                 goto    Inicio
+                      00052 
+0005                  00053                 ORG     0x05             ;Se salta el vector interrupción.
+                      00054 
+                      00055 
+                      00056 ;*********************************************************************************
+                      00057 ;Tabla con los patrones para accionamiento del motor PaP
+                      00058 
+0005   0782           00059 Pasos   addwf   PCL,F   ;Desplazamiento sobre la tabla
+0006   3490           00060                 retlw   0x90    ; 10010000
+0007   34A0           00061                 retlw   0xA0    ; 10100000
+0008   3460           00062                 retlw   0x60    ; 01100000
+0009   3450           00063                 retlw   0x50    ; 01010000
+                      00064 ;*********************************************************************************
+                      00065 
+                      00066 ;*********************************************************************************
+                      00067 ;Delay_var: Esta rutina de propósito general realiza una temporización variable
+                      00068 ;entre 10 mS y 2550ms. Se emplea un preescaler de 256 y al TMR0 se le carga con 39.
+                      00069 ;La velocidad de trabajo es de 4Mhz y por tanto el TMR0 se incrementa cada uS. De 
+                      00070 ;esta forma, el TMR0 debe contar 39 eventos que, con un preescaler de 256 hace una
+                      00071 ;intervalo total de 10000 uS/10 mS (39 * 256). El valor 39 hay que expresarlo
+                      00072 ;en Hex. (27) y como el TMR0 es ascendente habrá que cargar su complemento (D8 hex.)
+                      00073 ;Dicho intervalo de 10 mS se repite tantes veces como indique la variable "Delay_cont",
+                      00074 ;es por ello que el delay mínimo es de 10 mS ("Delay_cont=1) y el máxima de 2550ms 
+                      00075 ;(Delay_cont=255).
+                      00076 
+000A                  00077 Delay_var:
+000A   110B           00078                 bcf     INTCON,T0IF                     ;Desconecta el flag de rebosamiento
+000B   30D8           00079                 movlw   0xD8                    ;Complemento hex. de 39
+000C   0081           00080                 movwf   TMR0                    ;carga el TMR0
+                      00081 
+000D   0064           00082                 clrwdt                                  ; Refrescar el WDT
+000E   08CF           00083                 movf    Delay_Cont,F
+000F   1903           00084                 btfsc   STATUS, Z               ; Fin de la temporizacion?
+0010   0008           00085                 return                                  ; Si, vuelve
+0011                  00086 Timer           
+0011   1D0B           00087                 btfss   INTCON,T0IF             ; No, espera Rebasamiento del TMR0 ??
+0012   2811           00088                 goto    Timer 
+0013   0BCF           00089                 decfsz  Delay_Cont,F    ;Decrementa contador de intervalos
+0014   280A           00090                 goto    Delay_var               ;Repite el intervalo
+0015   0008           00091                 return  
+                      00092 
+                      00093 ;*************************************************************************************
+                      00094 ; Subir: Hace que el motor PaP suba las paletas.
+                      00095 ; El detector de fin de carrera en la linea 3 del puerto B determina si las paletas han llegado al final
+                             del recorrido.
+MPASM  5.03                         KIBOT.ASM   2-6-2007  21:28:03         PAGE  3
+
+
+LOC  OBJECT CODE     LINE SOURCE TEXT
+  VALUE
+
+                      00096 
+0016                  00097 Subir:
+0016   3078           00098                 movlw   ALTURA_2
+0017   00CB           00099                 movwf   Num_Pasos               
+                      00100 
+0018   01CA           00101                 clrf    paso_PaP                        ; Puesta a 0
+                      00102 
+0019                  00103 Subir_loop
+0019   0064           00104                 clrwdt
+001A   1E05           00105                 btfss   PORTA, 4                ; Detectado tope?
+001B   0008           00106                 return                                  ; Si, retorna
+                      00107 
+001C   08CB           00108                 movf    Num_Pasos, F
+001D   1903           00109                 btfsc   STATUS,Z                ; Es 0
+001E   0008           00110                 return
+001F   03CB           00111                 decf    Num_Pasos, F
+0020   1903           00112                 btfsc   STATUS,Z                ; Es 0
+0021   0008           00113                 return          ; Si, acabar
+                      00114 
+                      00115 
+0022   3001           00116                 movlw   .1                              ; No, temporiza
+0023   00CF           00117                 movwf   Delay_Cont
+0024   200A           00118                 call    Delay_var
+                      00119 
+0025   0ACA           00120                 incf    paso_PaP,F              
+0026   3004           00121                 movlw   .4
+0027   024A           00122                 subwf   paso_PaP, W
+0028   1D03           00123                 btfss   STATUS,Z                ; Es 4?
+0029   282C           00124                 goto    Subir_2                 ; No, da el Paso
+002A   01CA           00125                 clrf    paso_PaP                ; Si, puesta a 0
+002B   282C           00126                 goto    Subir_2                 ; da el Paso
+                      00127                 
+002C                  00128 Subir_2                                         ; Porner en el puerto el patron
+002C   084A           00129                 movf    paso_PaP, W
+002D   2005           00130                 call    Pasos
+002E   0086           00131                 movwf   PORTB
+002F   2819           00132                 goto    Subir_loop
+                      00133 
+0030   0008           00134                 return
+                      00135 ;*************************************************************************************
+                      00136 
+                      00137 ;*************************************************************************************
+                      00138 ; Bajar: Hace que el motor PaP baje las paletas.
+                      00139 ; Se bajarán las paletas y se debloqueará el motor dejandolo sin tension en las bobinas.
+                      00140 
+0031                  00141 Bajar:
+0031   3064           00142                 movlw   ALTURA
+0032   00CB           00143                 movwf   Num_Pasos               
+                      00144 
+0033                  00145 Bajar_loop
+0033   08CB           00146                 movf    Num_Pasos, F
+0034   1903           00147                 btfsc   STATUS,Z                ; Es 0
+0035   2845           00148                 goto    Fin_Bajar
+MPASM  5.03                         KIBOT.ASM   2-6-2007  21:28:03         PAGE  4
+
+
+LOC  OBJECT CODE     LINE SOURCE TEXT
+  VALUE
+
+0036   03CB           00149                 decf    Num_Pasos, F
+0037   1903           00150                 btfsc   STATUS,Z                ; Es 0
+0038   2845           00151                 goto    Fin_Bajar               ; Si, acabar
+                      00152 
+                      00153 ;               btfss   PORTB, 3                ; Detectado tope?
+                      00154 ;               goto    Fin_Bajar               ; Si, acabar
+                      00155 
+0039   3004           00156                 movlw   .04                             ; No
+003A   08CA           00157                 movf    paso_PaP, F             ; Observar paso
+003B   1903           00158                 btfsc   STATUS,Z                ; Es 0
+003C   00CA           00159                 movwf   paso_PaP                ; Si, poner a 4
+003D   03CA           00160                 decf    paso_PaP, F             ; No, paso anterior
+                      00161 
+003E   3002           00162                 movlw   .02                             ; Temporiza
+003F   00CF           00163                 movwf   Delay_Cont
+0040   200A           00164                 call    Delay_var
+                      00165 
+0041                  00166 Bajar_2                                                 ; Porner en el puerto el patron
+0041   084A           00167                 movf    paso_PaP, W
+0042   2005           00168                 call    Pasos
+0043   0086           00169                 movwf   PORTB
+0044   2833           00170                 goto    Bajar_loop
+                      00171 
+0045                  00172 Fin_Bajar
+0045   0186           00173                 clrf    PORTB
+0046   0008           00174                 return
+                      00175 ;*************************************************************************************
+                      00176 
+                      00177 ;*************************************************************************************
+                      00178 ; Mover_Robot: Una vez configurado el movimiento en las variables, velocidad, direccion y pasos
+                      00179 ; esta rutina pone el robot en movimiento.
+                      00180 
+0047                  00181 Mover_Robot:
+0047   084E           00182                 movf    velocidad, W    
+0048   00CF           00183                 movwf   Delay_Cont              
+0049   084C           00184                 movf    direccion, W
+004A   0085           00185                 movwf   PORTA                   
+004B   200A           00186                 call    Delay_var               
+004C   084E           00187                 movf    velocidad,w
+004D   3C05           00188                 sublw   ANCHO                   
+004E   00CF           00189                 movwf   Delay_Cont
+004F   0185           00190                 clrf    PORTA                   
+0050   200A           00191                 call    Delay_var               
+                      00192 
+Message[305]: Using default destination of 1 (file).
+0051   03CD           00193                 decf    pasos                   
+0052   1D03           00194                 btfss   STATUS, Z               
+0053   2847           00195                 goto    Mover_Robot
+                      00196 
+0054   0008           00197                 return
+                      00198 ;*************************************************************************************
+                      00199 
+                      00200 ;*************************************************************************************
+MPASM  5.03                         KIBOT.ASM   2-6-2007  21:28:03         PAGE  5
+
+
+LOC  OBJECT CODE     LINE SOURCE TEXT
+  VALUE
+
+                      00201 ; Media_Vuelta: Hace que el robot retroceda y gire sobre si mismo.
+                      00202 ; Empleada cuando se detecta el borde del tatami de frente
+                      00203 
+0055                  00204 Media_Vuelta:
+0055   300E           00205                 movlw   ATRAS                   ; Retroceso
+0056   00CC           00206                 movwf   direccion
+0057   3003           00207                 movlw   .03
+0058   00CE           00208                 movwf   velocidad
+0059   300F           00209                 movlw   .15
+005A   00CD           00210                 movwf   pasos
+005B   2047           00211                 call    Mover_Robot
+                      00212 
+005C   300F           00213                 movlw   GIRA_DCHA               ; Girar
+005D   00CC           00214                 movwf   direccion
+005E   301E           00215                 movlw   .30
+005F   00CD           00216                 movwf   pasos
+0060   2047           00217                 call    Mover_Robot
+                      00218 
+0061   0008           00219                 return
+                      00220 ;*************************************************************************************
+                      00221 
+                      00222 ;*************************************************************************************
+                      00223 ; Reentrada: Hace que el robot avance rapido para volver a entrar en el tatami.
+                      00224 ; Ademas sube y baja las paletas como defensa
+                      00225 
+0062                  00226 Reentrada:
+0062   300D           00227                 movlw   ADELANTE
+0063   00CC           00228                 movwf   direccion
+0064   3005           00229                 movlw   .05
+0065   00CE           00230                 movwf   velocidad
+0066   300F           00231                 movlw   .15
+0067   00CD           00232                 movwf   pasos
+0068   2047           00233                 call    Mover_Robot
+                      00234 
+0069   0008           00235                 return
+                      00236 ;*************************************************************************************
+                      00237 
+                      00238 ;*************************************************************************************
+                      00239 ; Ataque: Hace que el robot avance rapido para volver a entrar en el tatami.
+                      00240 ; Ademas sube y baja las paletas como defensa
+                      00241 
+006A                  00242 Ataque:
+006A   300D           00243                 movlw   ADELANTE
+006B   00CC           00244                 movwf   direccion
+006C   3005           00245                 movlw   .05
+006D   00CE           00246                 movwf   velocidad
+006E   3005           00247                 movlw   .05
+006F   00CD           00248                 movwf   pasos
+0070   2047           00249                 call    Mover_Robot             ; Embestir al oponente
+                      00250 
+0071   2016           00251                 call    Subir                   ; Intentar levantarlo
+                      00252 
+0072                  00253 Ataque_sacar
+MPASM  5.03                         KIBOT.ASM   2-6-2007  21:28:03         PAGE  6
+
+
+LOC  OBJECT CODE     LINE SOURCE TEXT
+  VALUE
+
+0072   3001           00254                 movlw   .01
+0073   00CD           00255                 movwf   pasos
+0074   2047           00256                 call    Mover_Robot
+                      00257 
+0075   1806           00258                 btfsc   PORTB, 0                ; Avanzar hasta que encuentre el borde
+0076   287C           00259                 goto    Fin_Atacar
+                      00260 
+0077   1886           00261                 btfsc   PORTB, 1                ; Si lo estan sacando intentar entrar
+0078   287C           00262                 goto    Fin_Atacar
+                      00263                 
+0079   1986           00264                 btfsc   PORTB, 3                ; Avanzar hasta que encuentre el borde
+007A   287C           00265                 goto    Fin_Atacar
+                      00266                                 
+007B   2872           00267                 goto    Ataque_sacar
+                      00268 
+007C                  00269 Fin_Atacar
+007C   2031           00270                 call    Bajar
+                      00271                 ;call   Media_Vuelta
+                      00272 
+007D   0008           00273                 return
+                      00274 ;*************************************************************************************
+                      00275 
+007E                  00276 Inicio  
+007E   1283           00277                 bcf             STATUS, RP0             ; Selecciona banco 0
+007F   0185           00278                 clrf    PORTA
+0080   0186           00279                 clrf    PORTB
+                      00280 
+0081   1683           00281                 bsf             STATUS, RP0             ; Selecciona banco 1
+0082   3010           00282                 movlw   0x10
+Message[302]: Register in operand not in bank 0.  Ensure that bank bits are correct.
+0083   0085           00283                 movwf   TRISA                   ; Puerto A,  lineas [0:3] salidas, [4] entrada
+0084   300F           00284                 movlw   0x0F
+Message[302]: Register in operand not in bank 0.  Ensure that bank bits are correct.
+0085   0086           00285                 movwf   TRISB                   ; Puerto B, lineas [0:3] entradas, [4:7] salidas
+0086   3007           00286                 movlw   0x07
+Message[302]: Register in operand not in bank 0.  Ensure that bank bits are correct.
+0087   0081           00287                 movwf   OPTION_REG              ; Preescaler de 256 para el TMR0
+                      00288 
+0088   1283           00289                 bcf             STATUS, RP0             ; Selecciona banco 0
+                      00290 
+0089                  00291 Ajuste_Mov
+0089   300D           00292                 movlw   ADELANTE                ; Avance
+008A   00CC           00293                 movwf   direccion
+008B   3001           00294                 movlw   .01                             ; Velocidad que mantendria el robot si no se det
+                            ecta nada
+008C   00CE           00295                 movwf   velocidad
+008D   3001           00296                 movlw   .01                             ; "Pasos" que avanzará el robot
+008E   00CD           00297                 movwf   pasos
+                      00298 
+008F                  00299 Mira_Del_Drcha
+008F   1C06           00300                 btfss   PORTB, 0                ; Detectado algo delante a la derecha?
+0090   2893           00301                 goto    Mira_Delante_Izq                ; No, Comprueba que no se sale por detras
+0091   2055           00302                 call    Media_Vuelta
+MPASM  5.03                         KIBOT.ASM   2-6-2007  21:28:03         PAGE  7
+
+
+LOC  OBJECT CODE     LINE SOURCE TEXT
+  VALUE
+
+0092   2889           00303                 goto    Ajuste_Mov
+                      00304 
+0093                  00305 Mira_Delante_Izq
+0093   1D86           00306                 btfss   PORTB, 3                ; Detectado algo delante a la izquierda?
+0094   2897           00307                 goto    Mira_Detras             ; No, Comprueba que no se sale por detras
+0095   2055           00308                 call    Media_Vuelta
+0096   2889           00309                 goto    Ajuste_Mov
+                      00310 
+                      00311 
+0097                  00312 Mira_Detras
+0097   1C86           00313                 btfss   PORTB, 1                ; Detectado algo detras?
+0098   289B           00314                 goto    Busca_Enemigo           ; No, Comprueba si se ha detectado enemigo con el infrar
+                            ojo
+0099   2062           00315                 call    Reentrada
+009A   2889           00316                 goto    Ajuste_Mov
+                      00317 
+009B                  00318 Busca_Enemigo
+009B   1D06           00319                 btfss   PORTB, 2                ; Detectado Enemigo por infrarojos o bumper?
+009C   289F           00320                 goto    Exploracion             
+009D   206A           00321                 call    Ataque
+009E   2889           00322                 goto    Ajuste_Mov
+                      00323 
+009F                  00324 Exploracion
+009F   2047           00325                 call    Mover_Robot
+00A0   2889           00326                 goto    Ajuste_Mov
+                      00327 
+                      00328 
+00A1                  00329 Fin
+                      00330                 END                                             ; Fin del programa.  
+MPASM  5.03                         KIBOT.ASM   2-6-2007  21:28:03         PAGE  8
+
+
+SYMBOL TABLE
+  LABEL                             VALUE 
+
+ADELANTE                          b'00001101'
+ALTURA                            .100
+ALTURA_2                          .120
+ANCHO                             .05
+ATRAS                             b'00001110'
+Ajuste_Mov                        00000089
+Ataque                            0000006A
+Ataque_sacar                      00000072
+Bajar                             00000031
+Bajar_2                           00000041
+Bajar_loop                        00000033
+Busca_Enemigo                     0000009B
+C                                 00000000
+DC                                00000001
+Delay_Cont                        0000004F
+Delay_var                         0000000A
+EEADR                             00000009
+EECON1                            00000088
+EECON2                            00000089
+EEDATA                            00000008
+EEIE                              00000006
+EEIF                              00000004
+Exploracion                       0000009F
+F                                 00000001
+FSR                               00000004
+Fin                               000000A1
+Fin_Atacar                        0000007C
+Fin_Bajar                         00000045
+GIE                               00000007
+GIRA_DCHA                         b'00001111'
+GIRA_IZQ                          b'000011001'
+INDF                              00000000
+INTCON                            0000000B
+INTE                              00000004
+INTEDG                            00000006
+INTF                              00000001
+IRP                               00000007
+Inicio                            0000007E
+LONGITUD                          .3
+Media_Vuelta                      00000055
+Mira_Del_Drcha                    0000008F
+Mira_Delante_Izq                  00000093
+Mira_Detras                       00000097
+Mover_Robot                       00000047
+NOT_PD                            00000003
+NOT_RBPU                          00000007
+NOT_TO                            00000004
+Num_Pasos                         0000004B
+OPTION_REG                        00000081
+PCL                               00000002
+PCLATH                            0000000A
+PORTA                             00000005
+PORTB                             00000006
+MPASM  5.03                         KIBOT.ASM   2-6-2007  21:28:03         PAGE  9
+
+
+SYMBOL TABLE
+  LABEL                             VALUE 
+
+PS0                               00000000
+PS1                               00000001
+PS2                               00000002
+PSA                               00000003
+Pasos                             00000005
+RBIE                              00000003
+RBIF                              00000000
+RD                                00000000
+RP0                               00000005
+RP1                               00000006
+Reentrada                         00000062
+STATUS                            00000003
+Subir                             00000016
+Subir_2                           0000002C
+Subir_loop                        00000019
+T0CS                              00000005
+T0IE                              00000005
+T0IF                              00000002
+T0SE                              00000004
+TMR0                              00000001
+TRISA                             00000085
+TRISB                             00000086
+Timer                             00000011
+W                                 00000000
+WR                                00000001
+WREN                              00000002
+WRERR                             00000003
+Z                                 00000002
+_CP_OFF                           00003FFF
+_CP_ON                            0000000F
+_HS_OSC                           00003FFE
+_LP_OSC                           00003FFC
+_PWRTE_OFF                        00003FFF
+_PWRTE_ON                         00003FF7
+_RC_OSC                           00003FFF
+_WDT_OFF                          00003FFB
+_WDT_ON                           00003FFF
+_XT_OSC                           00003FFD
+__16F84A                          00000001
+direccion                         0000004C
+paso_PaP                          0000004A
+pasos                             0000004D
+velocidad                         0000004E
+MPASM  5.03                         KIBOT.ASM   2-6-2007  21:28:03         PAGE 10
+
+
+MEMORY USAGE MAP ('X' = Used,  '-' = Unused)
+
+
+0000 : X----XXXXXXXXXXX XXXXXXXXXXXXXXXX XXXXXXXXXXXXXXXX XXXXXXXXXXXXXXXX
+0040 : XXXXXXXXXXXXXXXX XXXXXXXXXXXXXXXX XXXXXXXXXXXXXXXX XXXXXXXXXXXXXXXX
+0080 : XXXXXXXXXXXXXXXX XXXXXXXXXXXXXXXX X--------------- ----------------
+
+All other memory blocks unused.
+
+Program Memory Words Used:   157
+Program Memory Words Free:   867
+
+
+Errors   :     0
+Warnings :     0 reported,     0 suppressed
+Messages :     5 reported,     0 suppressed
+
+
